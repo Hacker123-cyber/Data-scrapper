@@ -1,51 +1,79 @@
 from selenium import webdriver
+from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import csv
+import os
 import time
 
-def scrape_tokopedia(keyword):
-    driver = webdriver.Chrome(r'C:\path\to\chromedriver.exe')  # Update path to your chromedriver
+def scrape_tokopedia(keyword, page_wait_time=30, csv_file_path="./"):
+    """Scrapes product data from Tokopedia and stores it in CSV files by location.
+
+    Args:
+        keyword (str): The search term.
+        csv_file_path (str, optional): Path to store the CSV files. Defaults to "./".
+    """
+    driver = webdriver.Chrome()  # Assume Chromedriver setup
     driver.get("https://www.tokopedia.com/")
-    time.sleep(2)  # Wait for page to load
 
-    # Find and input the search box
-    search_box = driver.find_element_by_xpath('//input[@name="q"]')
-    search_box.send_keys(keyword)
-    search_box.send_keys(Keys.RETURN)
-    time.sleep(2)  # Wait for search results to load
+    try:
+        # Use explicit waits for more robust element finding
+        search_box = WebDriverWait(driver, page_wait_time).until(
+            EC.presence_of_element_located((By.XPATH, "//input[@data-unify='Search']"))
+        )
+        search_box.send_keys(keyword)
+        search_box.send_keys(Keys.RETURN)
 
-    # Initialize dictionaries to store data
-    data_by_category = {}
+        data_by_location = {}
 
-    # Extract data from search results
-    products = driver.find_elements_by_xpath('//div[@class="css-1g20a2m"]')
-    for product in products:
-        try:
-            name = product.find_element_by_xpath('.//span[@class="css-o5uqvq"]').text
-            category = product.find_element_by_xpath('.//div[@class="css-1g3cq9l"]').text
-            price = product.find_element_by_xpath('.//span[@class="css-ooyzua"]').text
-            rating = product.find_element_by_xpath('.//span[@class="css-7fmtuv"]').text
-            num_buyers = product.find_element_by_xpath('.//span[@class="css-1bjwylw"]').text
+        # Wait for products to load
+        WebDriverWait(driver, page_wait_time).until(
+            EC.presence_of_element_located((By.XPATH, "//div[@data-testid='divProductWrapper']"))
+        )
 
-            # Add product data to the corresponding category dictionary
-            if category not in data_by_category:
-                data_by_category[category] = []
-            data_by_category[category].append({'Name': name, 'Price': price, 'Rating': rating, 'Buyers': num_buyers})
-        except Exception as e:
-            print(f"Error processing product: {e}")
+        products = driver.find_elements(By.XPATH, "//div[@data-testid='divProductWrapper']")
 
-    # Write data to CSV files based on categories
-    for category, products_data in data_by_category.items():
-        csv_file_path = f"C:/Users/allessandro/Desktop/Startup/{category}.csv"
-        with open(csv_file_path, mode='w', newline='', encoding='utf-8') as csvfile:
-            fieldnames = ['Name', 'Price', 'Rating', 'Buyers']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-            for product_data in products_data:
-                writer.writerow(product_data)
+        for product in products:
+            try:
+                name_element = product.find_element(By.XPATH, ".//div[@data-testid='spnSRPProdName']")
+                name = name_element.text if name_element else None
 
-    # Close the driver
-    driver.quit()
+                location_element = product.find_element(By.XPATH, ".//span[@data-testid='spnSRPProdTabShopLoc']")
+                location = location_element.text if location_element else None
+
+                price_element = product.find_element(By.XPATH, ".//div[@data-testid='spnSRPProdPrice']")
+                price = price_element.text if price_element else None
+
+                rating_element = product.find_element(By.XPATH, ".//div[contains(@class, 'prd_shop-rating-average-and-label')]/span[1]")
+                rating = rating_element.text if rating_element else None
+
+                num_buyers_element = product.find_element(By.XPATH, ".//span[contains(@class, 'prd_label-integrity')]")
+                num_buyers = num_buyers_element.text if num_buyers_element else None
+
+                if location not in data_by_location:
+                    data_by_location[location] = []
+
+                data_by_location[location].append({
+                    'Name': name,
+                    'Price': price,
+                    'Rating': rating,
+                    'Buyers': num_buyers
+                })
+            except Exception as e:
+                print(f"Error processing product: {e}")
+
+        # Write data to CSV files
+        for location, products_data in data_by_location.items():
+            filename = os.path.join(csv_file_path, f"{location}.csv")
+            with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['Name', 'Price', 'Rating', 'Buyers']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(products_data)
+
+    finally:
+        driver.quit()
 
 if __name__ == "__main__":
     keyword = input("Enter keyword: ")
